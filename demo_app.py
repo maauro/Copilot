@@ -7,7 +7,7 @@ import requests
 import streamlit as st
 
 # URL local del copilot
-API_URL = "http://127.0.0.1:3000/v1/chat"
+API_URL = "https://adosales-gpt-corporate-api-copilot-cr-736515301718.us-east1.run.app/v1/chat"
 
 # Zona horaria para los timestamps
 SANTIAGO_TZ = ZoneInfo("America/Santiago")
