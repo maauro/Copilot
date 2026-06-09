@@ -6,8 +6,8 @@ from zoneinfo import ZoneInfo
 import requests
 import streamlit as st
 
-# URL de la Cloud Run del copilot en dev
-API_URL = "https://adosales-gpt-corporate-api-copilot-cr-736515301718.us-east1.run.app/v1/chat"
+# URL local del copilot
+API_URL = "http://127.0.0.1:3000/v1/chat"
 
 # Zona horaria para los timestamps
 SANTIAGO_TZ = ZoneInfo("America/Santiago")
@@ -23,14 +23,15 @@ def _fmt(dt: datetime) -> str:
     return dt.strftime("%d-%m-%Y %H:%M:%S")
 
 
-def _get_tokens() -> tuple[str, str]:
+def _get_tokens() -> tuple[str, str, str]:
     """
     Obtiene los tokens desde Streamlit Secrets.
-    Retorna (access_token, identity_token).
+    Retorna (access_token, identity_token_cr, identity_token_airtalk).
     """
     access_token = st.secrets["ACCESS_TOKEN"]
-    identity_token = st.secrets["IDENTITY_TOKEN"]
-    return access_token, identity_token
+    identity_token_cr = st.secrets["IDENTITY_TOKEN_CR"]
+    identity_token_airtalk = st.secrets["IDENTITY_TOKEN_AIRTALK"]
+    return access_token, identity_token_cr, identity_token_airtalk
 
 
 def _render_caption(msg: dict) -> None:
@@ -111,7 +112,7 @@ if prompt := st.chat_input("Escribe tu pregunta..."):
     with st.chat_message("assistant"):
         with st.spinner("Consultando datos..."):
             try:
-                access_token, identity_token = _get_tokens()
+                access_token, identity_token_cr, identity_token_airtalk = _get_tokens()
 
                 payload = {"message": prompt}
                 if st.session_state.conversation_id:
@@ -121,12 +122,9 @@ if prompt := st.chat_input("Escribe tu pregunta..."):
                     API_URL,
                     json=payload,
                     headers={
-                        # Identity token para invocar la Cloud Run
-                        "Authorization": f"Bearer {identity_token}",
-                        # Access token para que FastAPI valide el usuario GCP
+                        "Authorization": f"Bearer {identity_token_cr}",
                         "X-Access-Token": f"Bearer {access_token}",
-                        # Identity token para que Airtalk MCP valide el request
-                        "X-Identity-Token": f"Bearer {identity_token}",
+                        "X-Identity-Token": f"Bearer {identity_token_airtalk}",
                         "Content-Type": "application/json",
                     },
                     timeout=300,
