@@ -121,7 +121,11 @@ if prompt := st.chat_input("Escribe tu pregunta..."):
                     API_URL,
                     json=payload,
                     headers={
-                        "Authorization": f"Bearer {access_token}",
+                        # Identity token para invocar la Cloud Run
+                        "Authorization": f"Bearer {identity_token}",
+                        # Access token para que FastAPI valide el usuario GCP
+                        "X-Access-Token": f"Bearer {access_token}",
+                        # Identity token para que Airtalk MCP valide el request
                         "X-Identity-Token": f"Bearer {identity_token}",
                         "Content-Type": "application/json",
                     },
@@ -155,4 +159,3 @@ if prompt := st.chat_input("Escribe tu pregunta..."):
                 st.error("Los tokens han expirado. Contacta al administrador.")
             except Exception as e:
                 st.error(f"Error inesperado: {e}")
-
