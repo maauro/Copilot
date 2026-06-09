@@ -52,7 +52,7 @@ st.set_page_config(
     layout="centered",
 )
 
-st.title("✈️ Copilot - Corporate")
+st.title("✈️ Copilot - Corporate POC")
 st.caption("Consulta datos corporativos en lenguaje natural")
 
 # --- Estado de sesion ---
