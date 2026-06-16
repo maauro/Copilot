@@ -9,6 +9,13 @@ import streamlit as st
 # URL local del copilot
 API_URL = "https://adosales-gpt-corporate-api-copilot-cr-736515301718.us-east1.run.app/v1/chat"
 
+# Lista de correos autorizados
+ALLOWED_EMAILS = {
+    "mauricio.caneo@latam.com",
+    "test@latam.com",
+    "fabian.contrerasa@latam.com",
+}
+
 # Zona horaria para los timestamps
 SANTIAGO_TZ = ZoneInfo("America/Santiago")
 
@@ -72,11 +79,13 @@ if not st.session_state.user_email:
     st.info("Ingresa tu correo LATAM para comenzar.")
     email_input = st.text_input("Correo electronico", placeholder="nombre@latam.com")
     if st.button("Ingresar", use_container_width=True):
-        if email_input.endswith("@latam.com"):
+        if email_input in ALLOWED_EMAILS:
             st.session_state.user_email = email_input
             st.rerun()
-        else:
+        elif not email_input.endswith("@latam.com"):
             st.error("Solo se permiten correos @latam.com")
+        else:
+            st.error("Tu correo no está autorizado para acceder a esta demo.")
     st.stop()
 
 # --- Sidebar ---
@@ -100,9 +109,6 @@ _STARTER_QUESTIONS = [
     ("🏆", "Dame mis top 10 cuentas para contactar hoy"),
 ]
 
-# Leemos pending_prompt antes de renderizar los botones:
-# si ya hay una pregunta en camino, los botones arrancan deshabilitados
-# en el mismo run que ejecuta el API call.
 _pending_prompt = st.session_state.pending_prompt
 
 if not st.session_state.messages:
@@ -133,7 +139,6 @@ for msg in st.session_state.messages:
         _render_caption(msg)
 
 # --- Input del usuario ---
-# Fase 1: detectar texto escrito → guardar en pending y deshabilitar UI antes del API call
 _typed_input = st.chat_input("Escribe tu pregunta...", disabled=st.session_state.is_loading)
 if _typed_input:
     st.session_state.pending_prompt = _typed_input
