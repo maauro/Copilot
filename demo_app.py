@@ -31,10 +31,13 @@ def _fmt(dt: datetime) -> str:
     return dt.strftime("%d-%m-%Y %H:%M:%S")
 
 
+_GCLOUD_BIN = "/opt/homebrew/bin/gcloud"
+
+
 def _gcloud_run(args: list[str]) -> str:
     """Ejecuta un comando gcloud y retorna stdout limpio."""
     result = subprocess.run(
-        ["gcloud"] + args,
+        [_GCLOUD_BIN] + args,
         capture_output=True,
         text=True,
         check=True,
