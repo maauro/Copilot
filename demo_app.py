@@ -1,11 +1,12 @@
 # demo_app.py
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import requests
 import streamlit as st
 
-# URL de la Cloud Run del copilot en dev
+# URL local del copilot
 API_URL = "https://adosales-gpt-corporate-api-copilot-cr-736515301718.us-east1.run.app/v1/chat"
 
 # Zona horaria para los timestamps
@@ -92,13 +93,16 @@ with st.sidebar:
         st.session_state.user_email = None
         st.rerun()
 
-# --- Botones de inicio (solo si la conversacion esta vacia) ---
+# --- Botones de inicio (solo si la conversación está vacía) ---
 _STARTER_QUESTIONS = [
-    ("💬", "Que preguntas me puedes responder?"),
-    ("📊", "Que cuentas estan al 85% o mas de progreso hacia el siguiente tier?"),
+    ("💬", "¿Qué preguntas te puedo realizar?"),
+    ("📊", "¿Qué cuentas están al 85% o más de progreso hacia el siguiente tier?"),
     ("🏆", "Dame mis top 10 cuentas para contactar hoy"),
 ]
 
+# Leemos pending_prompt antes de renderizar los botones:
+# si ya hay una pregunta en camino, los botones arrancan deshabilitados
+# en el mismo run que ejecuta el API call.
 _pending_prompt = st.session_state.pending_prompt
 
 if not st.session_state.messages:
@@ -118,7 +122,7 @@ if not st.session_state.messages:
                 st.session_state.is_loading = True
                 st.rerun()
 
-# --- Captura del prompt pendiente y limpieza ---
+# --- Captura del prompt pendiente (desde botón) y limpieza ---
 prompt_from_button = _pending_prompt
 st.session_state.pending_prompt = None
 
@@ -129,13 +133,14 @@ for msg in st.session_state.messages:
         _render_caption(msg)
 
 # --- Input del usuario ---
+# Fase 1: detectar texto escrito → guardar en pending y deshabilitar UI antes del API call
 _typed_input = st.chat_input("Escribe tu pregunta...", disabled=st.session_state.is_loading)
 if _typed_input:
     st.session_state.pending_prompt = _typed_input
     st.session_state.is_loading = True
     st.rerun()
 
-# --- Ejecutar API call ---
+# Fase 2: ejecutar API call (prompt viene de botón o de la fase 1)
 if prompt_from_button:
     asked_at = _now_scl()
     with st.chat_message("user"):
@@ -153,7 +158,11 @@ if prompt_from_button:
             try:
                 access_token, identity_token_cr, identity_token_airtalk = _get_tokens()
 
-                payload = {"message": prompt_from_button}
+                payload = {
+                    "message": prompt_from_button,
+                    # TEMPORAL: envía el correo ingresado en la UI para que la API lo use en Firestore
+                    "demo_email": st.session_state.user_email,
+                }
                 if st.session_state.conversation_id:
                     payload["conversation_id"] = st.session_state.conversation_id
 
