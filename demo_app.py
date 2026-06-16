@@ -1,6 +1,7 @@
 # demo_app.py
+import subprocess
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import requests
@@ -11,6 +12,13 @@ API_URL = "https://adosales-gpt-corporate-api-copilot-cr-736515301718.us-east1.r
 
 # Zona horaria para los timestamps
 SANTIAGO_TZ = ZoneInfo("America/Santiago")
+
+# --- Configuración de tokens gcloud ---
+_GCLOUD_ACCOUNT = "mauricio.caneo@latam.com"
+_IMPERSONATE_SA = "adosales-gpt-corporate-sa@adosales-data-dev.iam.gserviceaccount.com"
+_AUDIENCE_CR = "https://adosales-gpt-corporate-api-copilot-cr-736515301718.us-east1.run.app"
+_AUDIENCE_AIRTALK = "https://airtalk-mcp-cr-25512535102.us-central1.run.app"
+_TOKEN_TTL = 55 * 60  # 55 minutos en segundos
 
 
 def _now_scl() -> datetime:
@@ -23,15 +31,62 @@ def _fmt(dt: datetime) -> str:
     return dt.strftime("%d-%m-%Y %H:%M:%S")
 
 
+def _gcloud_run(args: list[str]) -> str:
+    """Ejecuta un comando gcloud y retorna stdout limpio."""
+    result = subprocess.run(
+        ["gcloud"] + args,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def _generate_tokens() -> dict:
+    """Llama a gcloud para generar los tres tokens. Siempre usa _GCLOUD_ACCOUNT."""
+    access_token = _gcloud_run(["auth", "print-access-token", _GCLOUD_ACCOUNT])
+    identity_token_cr = _gcloud_run([
+        "auth", "print-identity-token",
+        f"--impersonate-service-account={_IMPERSONATE_SA}",
+        f"--audiences={_AUDIENCE_CR}",
+        "--include-email",
+    ])
+    identity_token_airtalk = _gcloud_run([
+        "auth", "print-identity-token",
+        f"--impersonate-service-account={_IMPERSONATE_SA}",
+        f"--audiences={_AUDIENCE_AIRTALK}",
+        "--include-email",
+    ])
+    return {
+        "access_token": access_token,
+        "identity_token_cr": identity_token_cr,
+        "identity_token_airtalk": identity_token_airtalk,
+        "generated_at": time.monotonic(),
+        "expires_at": _now_scl() + timedelta(minutes=55),
+    }
+
+
 def _get_tokens() -> tuple[str, str, str]:
     """
-    Obtiene los tokens desde Streamlit Secrets.
     Retorna (access_token, identity_token_cr, identity_token_airtalk).
+    Genera tokens con gcloud si no existen o expiraron (TTL 55 min).
     """
-    access_token = st.secrets["ACCESS_TOKEN"]
-    identity_token_cr = st.secrets["IDENTITY_TOKEN_CR"]
-    identity_token_airtalk = st.secrets["IDENTITY_TOKEN_AIRTALK"]
-    return access_token, identity_token_cr, identity_token_airtalk
+    tokens = st.session_state.get("_tokens")
+    expired = tokens is None or (time.monotonic() - tokens["generated_at"]) >= _TOKEN_TTL
+
+    if expired:
+        tokens = _generate_tokens()
+        st.session_state._tokens = tokens
+
+    return tokens["access_token"], tokens["identity_token_cr"], tokens["identity_token_airtalk"]
+
+
+# Implementación original — lee tokens desde secrets.toml (mantenida como referencia)
+# def _get_tokens_from_secrets() -> tuple[str, str, str]:
+#     access_token = st.secrets["ACCESS_TOKEN"]
+#     identity_token_cr = st.secrets["IDENTITY_TOKEN_CR"]
+#     identity_token_airtalk = st.secrets["IDENTITY_TOKEN_AIRTALK"]
+#     return access_token, identity_token_cr, identity_token_airtalk
 
 
 def _render_caption(msg: dict) -> None:
@@ -66,6 +121,8 @@ if "pending_prompt" not in st.session_state:
     st.session_state.pending_prompt = None
 if "is_loading" not in st.session_state:
     st.session_state.is_loading = False
+if "_tokens" not in st.session_state:
+    st.session_state._tokens = None
 
 # --- Identificacion del usuario ---
 if not st.session_state.user_email:
@@ -79,9 +136,38 @@ if not st.session_state.user_email:
             st.error("Solo se permiten correos @latam.com")
     st.stop()
 
+# --- Generación eager de tokens al iniciar sesión ---
+if st.session_state._tokens is None:
+    with st.spinner("Generando tokens de autenticación..."):
+        try:
+            st.session_state._tokens = _generate_tokens()
+        except FileNotFoundError:
+            st.error("gcloud no está instalado o no está en el PATH.")
+            st.stop()
+        except subprocess.CalledProcessError as e:
+            st.error(f"Error al generar tokens con gcloud:\n\n```\n{e.stderr}\n```")
+            st.stop()
+
 # --- Sidebar ---
 with st.sidebar:
     st.markdown(f"Usuario: **{st.session_state.user_email}**")
+    st.divider()
+
+    # Estado de tokens
+    tokens = st.session_state.get("_tokens")
+    if tokens:
+        elapsed_sec = time.monotonic() - tokens["generated_at"]
+        remaining_min = max(0, (_TOKEN_TTL - elapsed_sec) / 60)
+        st.caption(f"Tokens expiran: {_fmt(tokens['expires_at'])}")
+        st.caption(f"Tiempo restante: {remaining_min:.0f} min")
+        if st.button("Refrescar tokens", use_container_width=True):
+            with st.spinner("Regenerando tokens..."):
+                try:
+                    st.session_state._tokens = _generate_tokens()
+                    st.rerun()
+                except subprocess.CalledProcessError as e:
+                    st.error(f"Error al refrescar tokens:\n\n```\n{e.stderr}\n```")
+
     st.divider()
     if st.button("Nueva conversacion", use_container_width=True):
         st.session_state.messages = []
@@ -194,12 +280,14 @@ if prompt_from_button:
                 })
                 st.rerun()
 
+            except FileNotFoundError:
+                st.error("gcloud no está instalado o no está en el PATH.")
+            except subprocess.CalledProcessError as e:
+                st.error(f"Error al regenerar tokens:\n\n```\n{e.stderr}\n```")
             except requests.exceptions.Timeout:
                 st.error("El agente tardo demasiado. Intenta de nuevo.")
             except requests.exceptions.HTTPError as e:
                 st.error(f"Error {e.response.status_code}: {e.response.text}")
-            except KeyError:
-                st.error("Los tokens han expirado. Contacta al administrador.")
             except Exception as e:
                 st.error(f"Error inesperado: {e}")
             finally:
